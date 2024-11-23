@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+ignore = "0.4"
 ratatui = "0.24.0"
 crossterm = "0.27.0"
 tokio = { version = "1.0", features = ["full"] }
@@ -12,3 +13,4 @@ walkdir = "2.4.0"
 fuzzy-matcher = "0.3"
 syntect = "5.0"
 tui-input = "0.8.0"
+bat = "0.24"
