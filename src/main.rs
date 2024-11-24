@@ -126,7 +126,7 @@ impl App {
             filtered_files: files,
             selected_index: 0,
             input: TextInput::default(),
-            search_mode: SearchMode::Filename,
+            search_mode: SearchMode::Contents,
         }
     }
 
@@ -246,7 +246,7 @@ fn run_app() -> Result<()> {
 
             // Only scroll if we have a position to scroll to
             let preview = if let Some(scroll_pos) = scroll_to {
-                preview.scroll((scroll_pos, 0))
+                preview.scroll((scroll_pos, 0u16)) // Explicitly specify both tuple elements
             } else {
                 preview
             };
@@ -271,7 +271,7 @@ fn run_app() -> Result<()> {
                 }
                 SearchMode::Contents => "Mode: Content Search (Ctrl+N: filename, Ctrl+F: contents)",
             })
-            .style(Style::default().fg(Color::Gray));
+            .style(Style::default().fg(Color::Rgb(155, 155, 155)));
 
             frame.render_widget(file_list, layout[0]);
             frame.render_widget(preview, right_layout[0]);
