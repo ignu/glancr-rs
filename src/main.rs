@@ -63,39 +63,19 @@ fn is_binary_file(path: &std::path::Path) -> bool {
 }
 
 // Add this helper function to check for directories/files we want to ignore
-fn should_ignore_path(path: &std::path::Path) -> bool {
+fn should_ignore_path(path: &std::path::Path, config: &Config) -> bool {
     let path_str = path.to_string_lossy().to_lowercase();
 
-    // Common directories to ignore
-    let ignored_dirs = [
-        "/.git/",
-        "/node_modules/",
-        "/target/",
-        "/dist/",
-        "/build/",
-        "/.idea/",
-        "/.vscode/",
-        "/vendor/",
-        "/.next/",
-        "/coverage/",
-        "/yarn.lock",
-        "/.yarn/",
-    ];
-
-    // Common file patterns to ignore
-    let ignored_patterns = [
-        ".lock", ".log", ".map", ".min.js", ".min.css", ".bundle.", ".cache",
-    ];
-
     // Check if path contains any of the ignored directory patterns
-    if ignored_dirs.iter().any(|dir| path_str.contains(dir)) {
+    if config.ignored_dirs.iter().any(|dir| path_str.contains(dir)) {
         return true;
     }
 
     // Check if the file name matches any ignored patterns
     if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
         let file_name_lower = file_name.to_lowercase();
-        if ignored_patterns
+        if config
+            .ignored_patterns
             .iter()
             .any(|pattern| file_name_lower.contains(pattern))
         {
@@ -160,7 +140,7 @@ impl App {
                         if !e.file_type().map_or(false, |ft| ft.is_file()) {
                             return false;
                         }
-                        if should_ignore_path(path) {
+                        if should_ignore_path(path, &self.config) {
                             return false;
                         }
                         !is_binary_file(path)

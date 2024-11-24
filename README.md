@@ -43,5 +43,19 @@ cargo install --path .
 Glancr can be configured through `~/.glancr.yml`:
 
 ```yaml
-open_command: 'code'
+# Command used to open files (default: 'code')
+open_command: 'cursor'
+ignored_dirs:
+  - .git
+  - node_modules
+  - target
+  - dist
+  - build
+ignored_patterns:
+  - .lock
+  - .log
+  - .map
+  - .cache
 ```
+
+All configuration options are optional and will fall back to sensible defaults if omitted. For a complete list of default patterns and configuration options, see [config.rs](src/config.rs).
