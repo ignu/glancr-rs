@@ -52,9 +52,20 @@ pub fn get_file_preview(
 
     let ps = SyntaxSet::load_defaults_newlines();
     let ts = ThemeSet::load_defaults();
-    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+
+    // Try multiple methods to detect the correct syntax
     let syntax = ps
-        .find_syntax_by_extension(extension)
+        // First try by file extension
+        .find_syntax_for_file(path)
+        .ok()
+        .flatten()
+        // Then try by first line of content if extension doesn't work
+        .or_else(|| {
+            lines
+                .first()
+                .and_then(|first_line| ps.find_syntax_by_first_line(first_line))
+        })
+        // Finally fallback to plain text
         .unwrap_or_else(|| ps.find_syntax_plain_text());
 
     let mut text_lines = Vec::new();
