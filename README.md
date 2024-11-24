@@ -35,6 +35,7 @@ cargo install --path .
 - `Ctrl+d` to toggle searching dirty files
 - `Ctrl+b` to toggle files changed from default branch
 - `Ctrl+n` for searching file names
+- `PageUp/PageDwn` scroll preview
 - `Esc` to exit
 
 ## Configuration

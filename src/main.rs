@@ -47,6 +47,7 @@ struct App {
     file_filter: FileFilter,
     config: Config,
     show_help: bool,
+    preview_scroll: u16,
 }
 
 // Helper function to check if a file is likely binary
@@ -116,6 +117,7 @@ impl App {
             file_filter: FileFilter::All,
             config: Config::load(),
             show_help: false,
+            preview_scroll: 0,
         }
     }
 
@@ -285,6 +287,21 @@ impl App {
         // Fallback to "main" if we can't get the default branch
         String::from("main")
     }
+
+    fn scroll_preview(&mut self, frame_height: u16, delta: i16) {
+        // Calculate scroll amount as ~90% of visible area (excluding borders)
+        let scroll_amount = ((frame_height.saturating_sub(2)) as f32 * 0.9) as u16;
+
+        if delta < 0 {
+            self.preview_scroll = self.preview_scroll.saturating_sub(scroll_amount);
+        } else {
+            self.preview_scroll = self.preview_scroll.saturating_add(scroll_amount);
+        }
+    }
+
+    fn reset_scroll(&mut self) {
+        self.preview_scroll = 0;
+    }
 }
 
 fn run_app() -> Result<()> {
@@ -294,6 +311,7 @@ fn run_app() -> Result<()> {
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     let mut app = App::new();
     app.filter_files();
+    let mut frame_height = 0;
 
     loop {
         terminal.draw(|frame| {
@@ -310,6 +328,7 @@ fn run_app() -> Result<()> {
                     Constraint::Length(1),
                 ])
                 .split(layout[1]);
+            frame_height = right_layout[0].height;
 
             let file_list = List::new(
                 app.filtered_files
@@ -338,21 +357,18 @@ fn run_app() -> Result<()> {
             // Apply scrolling rules
             let preview = if let Some(scroll_pos) = scroll_to {
                 if scroll_pos < 15 {
-                    // Don't scroll if match is in first 10 lines
                     preview
                 } else {
-                    // Count total lines in preview using Text's line counting
                     let total_lines = preview_text.height() as u16;
-
                     if total_lines <= available_height {
                         preview
                     } else {
                         let adjusted_scroll = scroll_pos.saturating_sub(10);
-                        preview.scroll((adjusted_scroll, 0))
+                        preview.scroll((adjusted_scroll + app.preview_scroll, 0))
                     }
                 }
             } else {
-                preview
+                preview.scroll((app.preview_scroll, 0))
             };
 
             // Calculate cursor position
@@ -407,6 +423,7 @@ fn run_app() -> Result<()> {
                     "Ctrl+b       Toggle changed from default filter",
                     "↑/↓          Navigate files",
                     "Enter        Open selected file",
+                    "PgUp/PgDn    Scroll preview",
                 ];
 
                 let block = Block::default()
@@ -440,10 +457,12 @@ fn run_app() -> Result<()> {
                     KeyCode::Char('n') if key.modifiers == KeyModifiers::CONTROL => {
                         app.search_mode = SearchMode::Filename;
                         app.filter_files();
+                        app.reset_scroll();
                     }
                     KeyCode::Char('f') if key.modifiers == KeyModifiers::CONTROL => {
                         app.search_mode = SearchMode::Contents;
                         app.filter_files();
+                        app.reset_scroll();
                     }
                     KeyCode::Char('b') if key.modifiers == KeyModifiers::CONTROL => {
                         app.file_filter = match app.file_filter {
@@ -451,6 +470,7 @@ fn run_app() -> Result<()> {
                             _ => FileFilter::ChangedFromDefault,
                         };
                         app.filter_files();
+                        app.reset_scroll();
                     }
                     KeyCode::Char('d') if key.modifiers == KeyModifiers::CONTROL => {
                         app.file_filter = match app.file_filter {
@@ -458,19 +478,23 @@ fn run_app() -> Result<()> {
                             FileFilter::Dirty => FileFilter::All,
                         };
                         app.filter_files();
+                        app.reset_scroll();
                     }
 
                     KeyCode::Backspace => {
                         app.input.handle_event(&Event::Key(key));
                         app.filter_files();
+                        app.reset_scroll();
                     }
                     KeyCode::Up => {
                         app.selected_index = app.selected_index.saturating_sub(1);
+                        app.reset_scroll();
                     }
                     KeyCode::Down => {
                         if !app.filtered_files.is_empty() {
                             app.selected_index =
                                 (app.selected_index + 1).min(app.filtered_files.len() - 1);
+                            app.reset_scroll();
                         }
                     }
                     KeyCode::Enter => {
@@ -488,6 +512,14 @@ fn run_app() -> Result<()> {
                     KeyCode::Char(_) => {
                         app.input.handle_event(&Event::Key(key));
                         app.filter_files();
+                        app.reset_scroll();
+                    }
+                    // vim-ish bindings too
+                    KeyCode::PageUp => {
+                        app.scroll_preview(frame_height, -1);
+                    }
+                    KeyCode::PageDown => {
+                        app.scroll_preview(frame_height, 1);
                     }
                     _ => {}
                 }
