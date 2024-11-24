@@ -15,6 +15,9 @@ syntect = "5.0"
 tui-input = "0.8.0"
 bat = "0.24"
 grep = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+dirs = "5.0"
 
 [dev-dependencies]
 tempfile = "3.8"

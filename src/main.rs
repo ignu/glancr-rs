@@ -17,12 +17,13 @@ use ratatui::{
     text::Text,
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
-use std::{fs::File, io::stdout, io::Read, path::PathBuf};
+use std::{fs::File, io::stdout, io::Read, path::PathBuf, process::Command};
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input as TextInput;
-
 mod preview;
 use preview::get_file_preview;
+mod config;
+use config::Config;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum SearchMode {
@@ -36,6 +37,7 @@ struct App {
     selected_index: usize,
     input: TextInput,
     search_mode: SearchMode,
+    config: Config,
 }
 
 // Helper function to check if a file is likely binary
@@ -127,6 +129,7 @@ impl App {
             selected_index: 0,
             input: TextInput::default(),
             search_mode: SearchMode::Contents,
+            config: Config::load(),
         }
     }
 
@@ -197,6 +200,29 @@ impl App {
 
         let path = &self.filtered_files[self.selected_index];
         get_file_preview(path, self.input.value(), self.search_mode)
+    }
+
+    fn execute_command(&self) -> Result<()> {
+        if self.filtered_files.is_empty() {
+            return Ok(());
+        }
+
+        let path = &self.filtered_files[self.selected_index];
+        let path_str = path.to_string_lossy();
+
+        // Split the command string into program and arguments
+        let mut parts = self.config.open_command.split_whitespace();
+        let program = parts.next().unwrap_or("edit");
+        let mut command = Command::new(program);
+
+        // Add any additional arguments from the config
+        command.args(parts);
+
+        // Add the file path as the final argument
+        command.arg(path_str.as_ref());
+
+        command.spawn()?;
+        Ok(())
     }
 }
 
@@ -327,7 +353,7 @@ fn run_app() -> Result<()> {
                     }
                     KeyCode::Enter => {
                         if !app.filtered_files.is_empty() {
-                            // Here you could implement the action to open the selected file
+                            app.execute_command()?;
                             break;
                         }
                     }
