@@ -26,6 +26,12 @@ mod config;
 use config::Config;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+enum FileFilter {
+    All,
+    Dirty,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum SearchMode {
     Filename,
     Contents,
@@ -37,6 +43,7 @@ struct App {
     selected_index: usize,
     input: TextInput,
     search_mode: SearchMode,
+    file_filter: FileFilter,
     config: Config,
 }
 
@@ -98,44 +105,72 @@ fn should_ignore_path(path: &std::path::Path) -> bool {
 
 impl App {
     fn new() -> Self {
-        let mut files = Vec::new();
-
-        for entry in WalkBuilder::new(".")
-            .hidden(false)
-            .git_ignore(true)
-            .build()
-            .filter_map(|e| e.ok())
-            .filter(|e| {
-                let path = e.path();
-
-                // Skip directories and special paths
-                if !e.file_type().map_or(false, |ft| ft.is_file()) {
-                    return false;
-                }
-
-                // Skip common ignored paths
-                if should_ignore_path(path) {
-                    return false;
-                }
-
-                // Skip binary files
-                !is_binary_file(path)
-            })
-        {
-            files.push(entry.path().to_path_buf());
-        }
-
-        App {
-            files: files.clone(),
-            filtered_files: files,
+        let mut app = App {
+            files: Vec::new(),
+            filtered_files: Vec::new(),
             selected_index: 0,
             input: TextInput::default(),
             search_mode: SearchMode::Contents,
+            file_filter: FileFilter::All,
             config: Config::load(),
-        }
+        };
+        app.filter_files();
+        app
     }
 
+    // Add this new method to get dirty files from git
+    fn get_dirty_files() -> Vec<PathBuf> {
+        let output = Command::new("git")
+            .args(["status", "--porcelain"])
+            .output()
+            .unwrap_or_else(|_| panic!("Failed to execute git command"));
+
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| {
+                let status = &line[0..2];
+                let file_path = &line[3..];
+                // Include both modified and untracked files
+                if status.trim().is_empty() {
+                    None
+                } else {
+                    Some(PathBuf::from(file_path))
+                }
+            })
+            .collect()
+    }
+
+    // Modify the existing filter_files method
     fn filter_files(&mut self) {
+        // First, update the base files according to the file filter
+        self.files = match self.file_filter {
+            FileFilter::All => {
+                // Use the original file collection logic
+                let mut files = Vec::new();
+                for entry in WalkBuilder::new(".")
+                    .hidden(false)
+                    .git_ignore(true)
+                    .build()
+                    .filter_map(|e| e.ok())
+                    .filter(|e| {
+                        let path = e.path();
+                        if !e.file_type().map_or(false, |ft| ft.is_file()) {
+                            return false;
+                        }
+                        if should_ignore_path(path) {
+                            return false;
+                        }
+                        !is_binary_file(path)
+                    })
+                {
+                    files.push(entry.path().to_path_buf());
+                }
+                files
+            }
+            FileFilter::Dirty => Self::get_dirty_files(),
+        };
+
+        // Then apply the search filter
         let query = self.input.value();
         if query.is_empty() {
             self.filtered_files = self.files.clone();
@@ -146,7 +181,6 @@ impl App {
             SearchMode::Contents => self.filter_by_contents(query.to_string()),
         }
 
-        // Keep selected index in bounds
         self.selected_index = self
             .selected_index
             .min(self.filtered_files.len().saturating_sub(1));
@@ -334,6 +368,14 @@ fn run_app() -> Result<()> {
                     }
                     KeyCode::Char('f') if key.modifiers == KeyModifiers::CONTROL => {
                         app.search_mode = SearchMode::Contents;
+                        app.file_filter = FileFilter::All;
+                        app.filter_files();
+                    }
+                    KeyCode::Char('d') if key.modifiers == KeyModifiers::CONTROL => {
+                        app.file_filter = match app.file_filter {
+                            FileFilter::All => FileFilter::Dirty,
+                            FileFilter::Dirty => FileFilter::All,
+                        };
                         app.filter_files();
                     }
                     KeyCode::Char(_) => {

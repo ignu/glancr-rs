@@ -14,11 +14,6 @@ A terminal-based file preview and search tool inspired by Telescope.nvim, built 
 - 🚀 Fast and lightweight
 - 📁 Respects .gitignore
 
-## Prerequisites
-
-- Rust toolchain
-- Git (for installation from source)
-
 ## Installation
 
 ### From source
@@ -34,12 +29,15 @@ cargo install --path .
 
 - Type to search files
 - `↑` / `↓` to navigate through results
+- `Ctrl+F` for grepping all files
+- `Ctrl+D` to toggle searching dirty files
+- `Ctrl+N` for searching file names
 - `Enter` to open selected file in editor defined in `~/.glancr.yml`
 - `Esc` to exit
 
 ## Configuration
 
-Glancr can be configured through `~/.glancr.yml:
+Glancr can be configured through `~/.glancr.yml`:
 
 ```yaml
 open_command: 'code'
