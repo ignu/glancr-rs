@@ -2,6 +2,8 @@
 
 A terminal-based file preview and search tool inspired by Telescope.nvim, built in Rust. Glancr provides fast file searching with fuzzy finding capabilities and syntax-highlighted previews right in your terminal.
 
+![CleanShot 2024-11-24 at 09 12 55@2x](https://github.com/user-attachments/assets/5b6257bd-bfb9-4798-9b54-df11132c3191)
+
 ## Features
 
 - 🔎 Fuzzy file search
