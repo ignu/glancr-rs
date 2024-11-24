@@ -15,7 +15,7 @@ use ratatui::{
     prelude::*,
     style::{Color, Style},
     text::Text,
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
 use std::{fs::File, io::stdout, io::Read, path::PathBuf, process::Command};
 use tui_input::backend::crossterm::EventHandler;
@@ -46,6 +46,7 @@ struct App {
     search_mode: SearchMode,
     file_filter: FileFilter,
     config: Config,
+    show_help: bool,
 }
 
 // Helper function to check if a file is likely binary
@@ -114,6 +115,7 @@ impl App {
             search_mode: SearchMode::Contents,
             file_filter: FileFilter::All,
             config: Config::load(),
+            show_help: false,
         }
     }
 
@@ -260,6 +262,10 @@ impl App {
         command.spawn()?;
         Ok(())
     }
+
+    fn toggle_help(&mut self) {
+        self.show_help = !self.show_help;
+    }
 }
 
 fn run_app() -> Result<()> {
@@ -355,6 +361,42 @@ fn run_app() -> Result<()> {
             frame.render_widget(preview, right_layout[0]);
             frame.render_widget(input, right_layout[1]);
             frame.render_widget(status, right_layout[2]);
+
+            if app.show_help {
+                let help_text = vec![
+                    "Keybindings:",
+                    "─────────────",
+                    "F1/Ctrl+h    Show/hide this help",
+                    "Ctrl+c/Esc   Quit",
+                    "Ctrl+n       Switch to filename search",
+                    "Ctrl+f       Switch to content search",
+                    "Ctrl+d       Toggle dirty files filter",
+                    "Ctrl+m       Toggle changed from default filter",
+                    "↑/↓          Navigate files",
+                    "Enter        Open selected file",
+                ];
+
+                let block = Block::default()
+                    .title("Help")
+                    .borders(Borders::ALL)
+                    .style(Style::default().bg(Color::Black));
+
+                let help_paragraph = Paragraph::new(Text::from(help_text.join("\n")))
+                    .block(block)
+                    .wrap(Wrap { trim: true });
+
+                // Create a centered rect for the modal
+                let area = frame.size();
+                let help_rect = Rect::new(
+                    (area.width as i32 / 2 - 30).max(0) as u16,
+                    (area.height as i32 / 2 - 7).max(0) as u16,
+                    60,
+                    14,
+                );
+
+                frame.render_widget(Clear, help_rect); // Clear the background
+                frame.render_widget(help_paragraph, help_rect);
+            }
         })?;
 
         if let Event::Key(key) = event::read()? {
@@ -379,16 +421,12 @@ fn run_app() -> Result<()> {
                     }
                     KeyCode::Char('d') if key.modifiers == KeyModifiers::CONTROL => {
                         app.file_filter = match app.file_filter {
-                            FileFilter::All => FileFilter::Dirty,
+                            FileFilter::All | FileFilter::ChangedFromDefault => FileFilter::Dirty,
                             FileFilter::Dirty => FileFilter::All,
-                            FileFilter::ChangedFromDefault => FileFilter::All,
                         };
                         app.filter_files();
                     }
-                    KeyCode::Char(_) => {
-                        app.input.handle_event(&Event::Key(key));
-                        app.filter_files();
-                    }
+
                     KeyCode::Backspace => {
                         app.input.handle_event(&Event::Key(key));
                         app.filter_files();
@@ -407,6 +445,16 @@ fn run_app() -> Result<()> {
                             app.execute_command()?;
                             break;
                         }
+                    }
+                    KeyCode::F(1) => {
+                        app.toggle_help();
+                    }
+                    KeyCode::Char('h') if key.modifiers == KeyModifiers::CONTROL => {
+                        app.toggle_help();
+                    }
+                    KeyCode::Char(_) => {
+                        app.input.handle_event(&Event::Key(key));
+                        app.filter_files();
                     }
                     _ => {}
                 }
