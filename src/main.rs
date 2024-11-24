@@ -68,6 +68,8 @@ fn should_ignore_path(path: &std::path::Path) -> bool {
         "/vendor/",
         "/.next/",
         "/coverage/",
+        "/yarn.lock",
+        "/.yarn/",
     ];
 
     // Common file patterns to ignore

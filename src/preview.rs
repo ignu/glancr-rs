@@ -1,3 +1,5 @@
+use crate::SearchMode;
+use bat::assets::HighlightingAssets;
 use grep::{
     matcher::Matcher,
     regex::RegexMatcher,
@@ -8,9 +10,7 @@ use ratatui::{
     text::{Line, Span, Text},
 };
 use std::path::PathBuf;
-use syntect::{easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet};
-
-use crate::SearchMode;
+use syntect::{easy::HighlightLines, highlighting::ThemeSet};
 
 pub fn get_file_preview(
     path: &PathBuf,
@@ -49,8 +49,9 @@ pub fn get_file_preview(
 
     // Calculate scroll position
     let scroll_to = first_match_index.map(|line_num| line_num as u16);
-
-    let ps = SyntaxSet::load_defaults_newlines();
+    //let ps = SyntaxSet::load_defaults_newlines();
+    let ps = HighlightingAssets::from_binary();
+    let ps = ps.get_syntax_set().unwrap();
     let ts = ThemeSet::load_defaults();
 
     // Try multiple methods to detect the correct syntax
@@ -59,14 +60,27 @@ pub fn get_file_preview(
         .find_syntax_for_file(path)
         .ok()
         .flatten()
-        // Then try by first line of content if extension doesn't work
+        // Then try by extension directly for common web files
+        .or_else(|| {
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            match ext.as_str() {
+                "ts" | "tsx" => ps.find_syntax_by_extension("typescript"),
+                "js" | "jsx" => ps.find_syntax_by_extension("javascript"),
+                _ => None,
+            }
+        })
+        // Then try by first line of content
         .or_else(|| {
             lines
                 .first()
                 .and_then(|first_line| ps.find_syntax_by_first_line(first_line))
         })
         // Finally fallback to plain text
-        .unwrap_or_else(|| ps.find_syntax_plain_text());
+        .unwrap_or_else(|| ps.find_syntax_by_extension("txt").unwrap());
 
     let mut text_lines = Vec::new();
 
