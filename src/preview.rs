@@ -9,14 +9,29 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
 };
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use syntect::{easy::HighlightLines, highlighting::ThemeSet};
+
+const MAX_FILE_SIZE: u64 = 1024 * 512; // 512KB threshold
+const MAX_LINES_TO_FORMAT: usize = 1000; // Reasonable number of lines to syntax highlight
 
 pub fn get_file_preview(
     path: &PathBuf,
     query: &str,
     search_mode: SearchMode,
 ) -> (Text<'static>, Option<u16>) {
+    // Check file size first
+    let metadata = match std::fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(_) => return (Text::raw("Unable to read file metadata"), None),
+    };
+
+    if metadata.len() > MAX_FILE_SIZE {
+        return get_large_file_preview(path, query, search_mode);
+    }
+
     // Read the file content
     let content = match std::fs::read_to_string(path) {
         Ok(content) => content,
@@ -85,7 +100,7 @@ pub fn get_file_preview(
     let mut text_lines = Vec::new();
 
     let mut h = HighlightLines::new(syntax, &ts.themes["base16-ocean.dark"]);
-    for (idx, line) in lines.iter().enumerate() {
+    for (idx, line) in lines.iter().take(MAX_LINES_TO_FORMAT).enumerate() {
         let mut line_spans = Vec::new();
         let line_number = idx + 1;
         line_spans.push(Span::styled(
@@ -146,7 +161,79 @@ pub fn get_file_preview(
         }
     }
 
+    // If we hit the limit, add a notice
+    if lines.len() > MAX_LINES_TO_FORMAT {
+        text_lines.push(Line::from(vec![Span::styled(
+            "⚠️  File truncated - showing first 1000 lines only",
+            Style::default().fg(Color::Yellow),
+        )]));
+    }
+
     (Text::from(text_lines), scroll_to)
+}
+
+// New function to handle large files
+fn get_large_file_preview(
+    path: &PathBuf,
+    query: &str,
+    search_mode: SearchMode,
+) -> (Text<'static>, Option<u16>) {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(_) => return (Text::raw("Unable to read file"), None),
+    };
+
+    let reader = BufReader::new(file);
+    let mut text_lines = Vec::new();
+    let mut first_match_line = None;
+
+    // Add a warning header
+    text_lines.push(Line::from(vec![Span::styled(
+        "⚠️  Large file detected - showing plain text without syntax highlighting",
+        Style::default().fg(Color::Yellow),
+    )]));
+
+    for (idx, line_result) in reader.lines().take(MAX_LINES_TO_FORMAT).enumerate() {
+        let line = match line_result {
+            Ok(line) => line,
+            Err(_) => continue,
+        };
+
+        let mut line_spans = Vec::new();
+        let line_number = idx + 1;
+
+        // Add line number
+        line_spans.push(Span::styled(
+            format!("{:4} ", line_number),
+            Style::default().fg(Color::DarkGray),
+        ));
+
+        // Check for matches if we're searching
+        if !query.is_empty() && search_mode == SearchMode::Contents {
+            if let Some(regex_matcher) = RegexMatcher::new(query).ok() {
+                if let Ok(is_match) = regex_matcher.is_match(line.as_bytes()) {
+                    if is_match {
+                        first_match_line = first_match_line.or(Some(line_number as u16));
+                        // Highlight the matching line
+                        line_spans.push(Span::styled(
+                            line,
+                            Style::default()
+                                .bg(Color::DarkGray)
+                                .add_modifier(Modifier::BOLD),
+                        ));
+                        text_lines.push(Line::from(line_spans));
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // Add regular line
+        line_spans.push(Span::raw(line));
+        text_lines.push(Line::from(line_spans));
+    }
+
+    (Text::from(text_lines), first_match_line)
 }
 
 #[cfg(test)]
