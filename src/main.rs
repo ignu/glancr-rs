@@ -266,6 +266,25 @@ impl App {
     fn toggle_help(&mut self) {
         self.show_help = !self.show_help;
     }
+
+    fn get_git_branch() -> String {
+        // First try to get the default branch name
+        let output = Command::new("git")
+            .args(["config", "--get", "init.defaultBranch"])
+            .output();
+
+        if let Ok(o) = output {
+            if o.status.success() {
+                let branch = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if !branch.is_empty() {
+                    return branch;
+                }
+            }
+        }
+
+        // Fallback to "main" if we can't get the default branch
+        String::from("main")
+    }
 }
 
 fn run_app() -> Result<()> {
@@ -274,6 +293,7 @@ fn run_app() -> Result<()> {
 
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     let mut app = App::new();
+    app.filter_files();
 
     loop {
         terminal.draw(|frame| {
@@ -349,11 +369,24 @@ fn run_app() -> Result<()> {
             let input = Paragraph::new(input_value)
                 .block(Block::default().borders(Borders::ALL).title(search_label));
 
-            let status = Paragraph::new(match app.search_mode {
-                SearchMode::Filename => {
-                    "Mode: Filename Search (Ctrl+N: filename, Ctrl+F: contents)"
+            let status = Paragraph::new({
+                let filter_info = match app.file_filter {
+                    FileFilter::All => "",
+                    FileFilter::Dirty => " (dirty files)",
+                    FileFilter::ChangedFromDefault => {
+                        let default_branch = App::get_git_branch();
+                        &format!(" (files not on {})", default_branch)[..]
+                    }
+                };
+
+                match app.search_mode {
+                    SearchMode::Filename => {
+                        format!("Mode: Filename Search{} (F1 for Help)", filter_info)
+                    }
+                    SearchMode::Contents => {
+                        format!("Mode: Grep{} (F1 for Help)", filter_info)
+                    }
                 }
-                SearchMode::Contents => "Mode: Content Search (Ctrl+N: filename, Ctrl+F: contents)",
             })
             .style(Style::default().fg(Color::Rgb(155, 155, 155)));
 
@@ -371,7 +404,7 @@ fn run_app() -> Result<()> {
                     "Ctrl+n       Switch to filename search",
                     "Ctrl+f       Switch to content search",
                     "Ctrl+d       Toggle dirty files filter",
-                    "Ctrl+m       Toggle changed from default filter",
+                    "Ctrl+b       Toggle changed from default filter",
                     "↑/↓          Navigate files",
                     "Enter        Open selected file",
                 ];
@@ -412,7 +445,7 @@ fn run_app() -> Result<()> {
                         app.search_mode = SearchMode::Contents;
                         app.filter_files();
                     }
-                    KeyCode::Char('m') if key.modifiers == KeyModifiers::CONTROL => {
+                    KeyCode::Char('b') if key.modifiers == KeyModifiers::CONTROL => {
                         app.file_filter = match app.file_filter {
                             FileFilter::ChangedFromDefault => FileFilter::All,
                             _ => FileFilter::ChangedFromDefault,
