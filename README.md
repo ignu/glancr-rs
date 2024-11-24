@@ -20,7 +20,7 @@ A terminal-based file preview and search tool inspired by Telescope.nvim, built 
 
 ```bash
 bash
-git clone https://github.com/yourusername/glancr.git
+git clone https://github.com/ignu/glancr-rs.git
 cd glancr
 cargo install --path .
 ```
