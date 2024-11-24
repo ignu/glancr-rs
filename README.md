@@ -29,9 +29,10 @@ cargo install --path .
 
 - Type to search files
 - `↑` / `↓` to navigate through results
-- `Ctrl+F` for grepping all files
-- `Ctrl+D` to toggle searching dirty files
-- `Ctrl+N` for searching file names
+- `Ctrl+f` for grepping all files
+- `Ctrl+d` to toggle searching dirty files
+- `Ctrl+m` to toggle files changed from default branch
+- `Ctrl+n` for searching file names
 - `Enter` to open selected file in editor defined in `~/.glancr.yml`
 - `Esc` to exit
 

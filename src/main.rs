@@ -29,6 +29,7 @@ use config::Config;
 enum FileFilter {
     All,
     Dirty,
+    ChangedFromDefault,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -105,7 +106,7 @@ fn should_ignore_path(path: &std::path::Path) -> bool {
 
 impl App {
     fn new() -> Self {
-        let mut app = App {
+        App {
             files: Vec::new(),
             filtered_files: Vec::new(),
             selected_index: 0,
@@ -113,9 +114,7 @@ impl App {
             search_mode: SearchMode::Contents,
             file_filter: FileFilter::All,
             config: Config::load(),
-        };
-        app.filter_files();
-        app
+        }
     }
 
     // Add this new method to get dirty files from git
@@ -168,6 +167,7 @@ impl App {
                 files
             }
             FileFilter::Dirty => Self::get_dirty_files(),
+            FileFilter::ChangedFromDefault => Self::get_dirty_files(),
         };
 
         // Then apply the search filter
@@ -368,13 +368,20 @@ fn run_app() -> Result<()> {
                     }
                     KeyCode::Char('f') if key.modifiers == KeyModifiers::CONTROL => {
                         app.search_mode = SearchMode::Contents;
-                        app.file_filter = FileFilter::All;
+                        app.filter_files();
+                    }
+                    KeyCode::Char('m') if key.modifiers == KeyModifiers::CONTROL => {
+                        app.file_filter = match app.file_filter {
+                            FileFilter::ChangedFromDefault => FileFilter::All,
+                            _ => FileFilter::ChangedFromDefault,
+                        };
                         app.filter_files();
                     }
                     KeyCode::Char('d') if key.modifiers == KeyModifiers::CONTROL => {
                         app.file_filter = match app.file_filter {
                             FileFilter::All => FileFilter::Dirty,
                             FileFilter::Dirty => FileFilter::All,
+                            FileFilter::ChangedFromDefault => FileFilter::All,
                         };
                         app.filter_files();
                     }
