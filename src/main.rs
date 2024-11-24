@@ -7,7 +7,6 @@ use crossterm::{
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use grep::{
-    matcher::{self, Matcher},
     regex::RegexMatcher,
     searcher::{sinks::UTF8, BinaryDetection, SearcherBuilder},
 };
@@ -15,13 +14,15 @@ use ignore::WalkBuilder;
 use ratatui::{
     prelude::*,
     style::{Color, Style},
-    text::{Line, Span, Text},
+    text::Text,
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 use std::{fs::File, io::stdout, io::Read, path::PathBuf};
-use syntect::{easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet};
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input as TextInput;
+
+mod preview;
+use preview::get_file_preview;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum SearchMode {
@@ -189,121 +190,13 @@ impl App {
         }
     }
 
-    fn get_file_preview(&self) -> Text<'static> {
+    fn get_file_preview(&self) -> (Text<'static>, Option<u16>) {
         if self.filtered_files.is_empty() {
-            return Text::raw("");
+            return (Text::raw(""), None);
         }
 
         let path = &self.filtered_files[self.selected_index];
-        let query = self.input.value();
-
-        // Read the file content
-        let content = match std::fs::read_to_string(path) {
-            Ok(content) => content,
-            Err(_) => return Text::raw("Unable to read file"),
-        };
-
-        let lines: Vec<&str> = content.lines().collect();
-
-        // Find the first matching line index
-        let first_match_index = if !query.is_empty() && self.search_mode == SearchMode::Contents {
-            let regex_matcher = RegexMatcher::new(&query).ok();
-            lines.iter().position(|line| {
-                regex_matcher
-                    .as_ref()
-                    .and_then(|m| Some(m.find(line.as_bytes())))
-                    .map(|_| true)
-                    .unwrap_or(false)
-            })
-        } else {
-            None
-        };
-
-        // If we found a match, start 5 lines before it (or at start if not enough lines)
-        let start_line = first_match_index
-            .map(|idx| idx.saturating_sub(5))
-            .unwrap_or(0);
-
-        // Rest of syntax highlighting code...
-        let ps = SyntaxSet::load_defaults_newlines();
-        let ts = ThemeSet::load_defaults();
-        let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
-        let syntax = ps
-            .find_syntax_by_extension(extension)
-            .unwrap_or_else(|| ps.find_syntax_plain_text());
-        let mut h = HighlightLines::new(syntax, &ts.themes["base16-ocean.dark"]);
-        let mut text_lines = Vec::new();
-
-        let regex_matcher = if !query.is_empty() && self.search_mode == SearchMode::Contents {
-            RegexMatcher::new(&query).ok()
-        } else {
-            None
-        };
-
-        // Only process lines starting from our calculated start_line
-        for line in lines.iter().skip(start_line) {
-            let mut line_spans = Vec::new();
-            match h.highlight_line(line, &ps) {
-                Ok(ranges) => {
-                    for (style, text) in ranges.iter() {
-                        let fg_color =
-                            Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b);
-
-                        // If we have a search query, check for matches in this text segment
-                        if !query.is_empty() && self.search_mode == SearchMode::Contents {
-                            if let Some(regex_matcher) = regex_matcher.as_ref() {
-                                if let Ok(Some(match_result)) = regex_matcher.find(text.as_bytes())
-                                {
-                                    let match_start = match_result.start();
-                                    let mut last_idx = 0;
-
-                                    // Split the text into matched and unmatched segments
-                                    for idx in match_start..match_result.end() {
-                                        // Add unmatched segment before this match
-                                        if idx > last_idx {
-                                            line_spans.push(Span::styled(
-                                                text[last_idx..idx].to_string(),
-                                                Style::default().fg(fg_color),
-                                            ));
-                                        }
-
-                                        // Add the matched character with highlight
-                                        line_spans.push(Span::styled(
-                                            text[idx..idx + 1].to_string(),
-                                            Style::default()
-                                                .fg(fg_color)
-                                                .bg(Color::DarkGray)
-                                                .add_modifier(Modifier::BOLD),
-                                        ));
-
-                                        last_idx = idx + 1;
-                                    }
-
-                                    // Add any remaining unmatched text
-                                    if last_idx < text.len() {
-                                        line_spans.push(Span::styled(
-                                            text[last_idx..].to_string(),
-                                            Style::default().fg(fg_color),
-                                        ));
-                                    }
-                                    continue;
-                                }
-                            }
-                        }
-
-                        // No matches or no query, just add the whole text segment
-                        line_spans.push(Span::styled(
-                            text.to_string(),
-                            Style::default().fg(fg_color),
-                        ));
-                    }
-                    text_lines.push(Line::from(line_spans));
-                }
-                Err(_) => text_lines.push(Line::from("Error reading file".to_string())),
-            }
-        }
-
-        Text::from(text_lines)
+        get_file_preview(path, self.input.value(), self.search_mode)
     }
 }
 
@@ -346,9 +239,18 @@ fn run_app() -> Result<()> {
             )
             .block(Block::default().borders(Borders::ALL).title("Files"));
 
-            let preview = Paragraph::new(app.get_file_preview())
+            let (preview_text, scroll_to) = app.get_file_preview();
+            let preview = Paragraph::new(preview_text)
                 .block(Block::default().borders(Borders::ALL).title("Preview"))
                 .wrap(Wrap { trim: true });
+
+            // Only scroll if we have a position to scroll to
+            let preview = if let Some(scroll_pos) = scroll_to {
+                preview.scroll((scroll_pos, 0))
+            } else {
+                preview
+            };
+
             // Calculate cursor position
             let cursor_position = app.input.cursor();
             let mut input_value = app.input.value().to_string();
