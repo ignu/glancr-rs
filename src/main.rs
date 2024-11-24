@@ -7,6 +7,7 @@ use crossterm::{
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use grep::{
+    matcher::{self, Matcher},
     regex::RegexMatcher,
     searcher::{sinks::UTF8, BinaryDetection, SearcherBuilder},
 };
@@ -159,34 +160,33 @@ impl App {
     }
 
     fn filter_by_contents(&mut self, query: String) {
-        let matcher = match RegexMatcher::new(&query) {
-            Ok(m) => m,
-            Err(_) => return,
-        };
-        let mut searcher = SearcherBuilder::new()
-            .binary_detection(BinaryDetection::quit(0))
-            .build();
+        if let Some(regex_matcher) = RegexMatcher::new(&query).ok() {
+            let mut searcher = SearcherBuilder::new()
+                .binary_detection(BinaryDetection::quit(0))
+                .build();
 
-        self.filtered_files = self
-            .files
-            .iter()
-            .filter(|path| {
-                let mut found = false;
-                let sink = UTF8(|_line_num, _line| {
-                    found = true;
-                    Ok(false) // Stop searching after first match
-                });
-
-                searcher
-                    .search_path(&matcher, path, sink)
-                    .unwrap_or_else(|_| {
-                        found = false;
-                        ()
+            self.filtered_files = self
+                .files
+                .iter()
+                .filter(|path| {
+                    let mut found = false;
+                    let sink = UTF8(|_line_num, _line| {
+                        found = true;
+                        Ok(false) // Stop searching after first match
                     });
-                found
-            })
-            .cloned()
-            .collect();
+
+                    searcher
+                        .search_path(&regex_matcher, path, sink)
+                        .unwrap_or_else(|_| {
+                            found = false;
+                        });
+                    found
+                })
+                .cloned()
+                .collect();
+        } else {
+            self.filtered_files.clear();
+        }
     }
 
     fn get_file_preview(&self) -> Text<'static> {
@@ -196,7 +196,6 @@ impl App {
 
         let path = &self.filtered_files[self.selected_index];
         let query = self.input.value();
-        let matcher = SkimMatcherV2::default();
 
         // Read the file content
         let content = match std::fs::read_to_string(path) {
@@ -204,62 +203,91 @@ impl App {
             Err(_) => return Text::raw("Unable to read file"),
         };
 
+        let lines: Vec<&str> = content.lines().collect();
+
+        // Find the first matching line index
+        let first_match_index = if !query.is_empty() && self.search_mode == SearchMode::Contents {
+            let regex_matcher = RegexMatcher::new(&query).ok();
+            lines.iter().position(|line| {
+                regex_matcher
+                    .as_ref()
+                    .and_then(|m| Some(m.find(line.as_bytes())))
+                    .map(|_| true)
+                    .unwrap_or(false)
+            })
+        } else {
+            None
+        };
+
+        // If we found a match, start 5 lines before it (or at start if not enough lines)
+        let start_line = first_match_index
+            .map(|idx| idx.saturating_sub(5))
+            .unwrap_or(0);
+
+        // Rest of syntax highlighting code...
         let ps = SyntaxSet::load_defaults_newlines();
         let ts = ThemeSet::load_defaults();
-
         let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
-
         let syntax = ps
             .find_syntax_by_extension(extension)
             .unwrap_or_else(|| ps.find_syntax_plain_text());
-
         let mut h = HighlightLines::new(syntax, &ts.themes["base16-ocean.dark"]);
-        let mut lines = Vec::new();
+        let mut text_lines = Vec::new();
 
-        // Process content line by line
-        for line in content.lines() {
+        let regex_matcher = if !query.is_empty() && self.search_mode == SearchMode::Contents {
+            RegexMatcher::new(&query).ok()
+        } else {
+            None
+        };
+
+        // Only process lines starting from our calculated start_line
+        for line in lines.iter().skip(start_line) {
+            let mut line_spans = Vec::new();
             match h.highlight_line(line, &ps) {
                 Ok(ranges) => {
-                    let mut line_spans = Vec::new();
                     for (style, text) in ranges.iter() {
                         let fg_color =
                             Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b);
 
                         // If we have a search query, check for matches in this text segment
-                        if !query.is_empty() {
-                            if let Some(match_indices) = matcher.fuzzy_indices(text, &query) {
-                                let mut last_idx = 0;
+                        if !query.is_empty() && self.search_mode == SearchMode::Contents {
+                            if let Some(regex_matcher) = regex_matcher.as_ref() {
+                                if let Ok(Some(match_result)) = regex_matcher.find(text.as_bytes())
+                                {
+                                    let match_start = match_result.start();
+                                    let mut last_idx = 0;
 
-                                // Split the text into matched and unmatched segments
-                                for &idx in match_indices.1.iter() {
-                                    // Add unmatched segment before this match
-                                    if idx > last_idx {
+                                    // Split the text into matched and unmatched segments
+                                    for idx in match_start..match_result.end() {
+                                        // Add unmatched segment before this match
+                                        if idx > last_idx {
+                                            line_spans.push(Span::styled(
+                                                text[last_idx..idx].to_string(),
+                                                Style::default().fg(fg_color),
+                                            ));
+                                        }
+
+                                        // Add the matched character with highlight
                                         line_spans.push(Span::styled(
-                                            text[last_idx..idx].to_string(),
+                                            text[idx..idx + 1].to_string(),
+                                            Style::default()
+                                                .fg(fg_color)
+                                                .bg(Color::DarkGray)
+                                                .add_modifier(Modifier::BOLD),
+                                        ));
+
+                                        last_idx = idx + 1;
+                                    }
+
+                                    // Add any remaining unmatched text
+                                    if last_idx < text.len() {
+                                        line_spans.push(Span::styled(
+                                            text[last_idx..].to_string(),
                                             Style::default().fg(fg_color),
                                         ));
                                     }
-
-                                    // Add the matched character with highlight
-                                    line_spans.push(Span::styled(
-                                        text[idx..idx + 1].to_string(),
-                                        Style::default()
-                                            .fg(fg_color)
-                                            .bg(Color::DarkGray)
-                                            .add_modifier(Modifier::BOLD),
-                                    ));
-
-                                    last_idx = idx + 1;
+                                    continue;
                                 }
-
-                                // Add any remaining unmatched text
-                                if last_idx < text.len() {
-                                    line_spans.push(Span::styled(
-                                        text[last_idx..].to_string(),
-                                        Style::default().fg(fg_color),
-                                    ));
-                                }
-                                continue;
                             }
                         }
 
@@ -269,13 +297,13 @@ impl App {
                             Style::default().fg(fg_color),
                         ));
                     }
-                    lines.push(Line::from(line_spans));
+                    text_lines.push(Line::from(line_spans));
                 }
-                Err(_) => lines.push(Line::from(line.to_string())),
+                Err(_) => text_lines.push(Line::from("Error reading file".to_string())),
             }
         }
 
-        Text::from(lines)
+        Text::from(text_lines)
     }
 }
 
@@ -321,9 +349,19 @@ fn run_app() -> Result<()> {
             let preview = Paragraph::new(app.get_file_preview())
                 .block(Block::default().borders(Borders::ALL).title("Preview"))
                 .wrap(Wrap { trim: true });
+            // Calculate cursor position
+            let cursor_position = app.input.cursor();
+            let mut input_value = app.input.value().to_string();
+            input_value.insert(cursor_position, '|'); // Insert cursor character
 
-            let input = Paragraph::new(app.input.value())
-                .block(Block::default().borders(Borders::ALL).title("Search"));
+            // Determine the label based on the current search mode
+            let search_label = match app.search_mode {
+                SearchMode::Filename => "Filename Search",
+                SearchMode::Contents => "Content Search",
+            };
+
+            let input = Paragraph::new(input_value)
+                .block(Block::default().borders(Borders::ALL).title(search_label));
 
             let status = Paragraph::new(match app.search_mode {
                 SearchMode::Filename => {
@@ -342,7 +380,8 @@ fn run_app() -> Result<()> {
         if let Event::Key(key) = event::read()? {
             if key.kind == KeyEventKind::Press {
                 match key.code {
-                    KeyCode::Char('q') => break,
+                    KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => break,
+                    KeyCode::Esc => break,
                     KeyCode::Char('n') if key.modifiers == KeyModifiers::CONTROL => {
                         app.search_mode = SearchMode::Filename;
                         app.filter_files();
