@@ -240,13 +240,29 @@ fn run_app() -> Result<()> {
             .block(Block::default().borders(Borders::ALL).title("Files"));
 
             let (preview_text, scroll_to) = app.get_file_preview();
-            let preview = Paragraph::new(preview_text)
+            let preview = Paragraph::new(preview_text.clone())
                 .block(Block::default().borders(Borders::ALL).title("Preview"))
                 .wrap(Wrap { trim: true });
 
-            // Only scroll if we have a position to scroll to
+            // Calculate available height for preview (accounting for borders)
+            let available_height = right_layout[0].height.saturating_sub(2);
+
+            // Apply scrolling rules
             let preview = if let Some(scroll_pos) = scroll_to {
-                preview.scroll((scroll_pos, 0u16)) // Explicitly specify both tuple elements
+                if scroll_pos < 15 {
+                    // Don't scroll if match is in first 10 lines
+                    preview
+                } else {
+                    // Count total lines in preview using Text's line counting
+                    let total_lines = preview_text.height() as u16;
+
+                    if total_lines <= available_height {
+                        preview
+                    } else {
+                        let adjusted_scroll = scroll_pos.saturating_sub(10);
+                        preview.scroll((adjusted_scroll, 0))
+                    }
+                }
             } else {
                 preview
             };
